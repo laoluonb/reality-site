@@ -126,7 +126,7 @@ check_site() {
     --tlsv1.3 --tls-max 1.3 --resolve "$managed_domain:8443:127.0.0.1" \
     "https://$managed_domain:8443/" --output /dev/null
   local handshake
-  handshake=$(timeout 15 openssl s_client -connect 127.0.0.1:8443 -servername "$managed_domain" -alpn h2 -tls1_3 </dev/null 2>&1)
+  handshake=$(timeout 15 openssl s_client -connect 127.0.0.1:8443 -servername "$managed_domain" -alpn h2 -tls1_3 </dev/null 2>&1 | tr -d '\000')
   grep -q 'ALPN protocol: h2' <<< "$handshake" || die "HTTP/2 协商失败。"
   printf '本机 HTTPS、证书、TLS 1.3 和 HTTP/2 检查通过。\n'
   printf '公网 443 还需要你现有的 REALITY 服务正确转发到 127.0.0.1:8443。\n'

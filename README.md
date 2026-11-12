@@ -28,15 +28,16 @@ sudo bash install.sh notes.your-domain.com --email you@your-domain.com
 
 ## 方式二：从 GitHub 一条命令安装
 
-先将本项目根目录下所有文件上传到你自己的**公开** GitHub 仓库，默认分支为 `main`。
-下面的 `OWNER/REPO`、域名和邮箱都需要替换。命令分步检查下载是否成功，再执行。
+本项目仓库为 `laoluonb/reality-site`，默认分支为 `main`。
+下面只需替换域名和邮箱。命令分步检查下载是否成功，再执行。
+如果使用你自己 fork 的仓库，再把两处 `laoluonb/reality-site` 都换成你的仓库名称。
 
 ```bash
 curl -fL --proto '=https' --proto-redir '=https' \
-  https://raw.githubusercontent.com/OWNER/REPO/main/install.sh \
+  https://raw.githubusercontent.com/laoluonb/reality-site/main/install.sh \
   -o /tmp/reality-site-install.sh \
   && sudo bash /tmp/reality-site-install.sh notes.your-domain.com \
-  --email you@your-domain.com --repo OWNER/REPO
+  --email you@your-domain.com --repo laoluonb/reality-site
 ```
 
 可用 `--ref` 指定某个提交或标签。若不用 `main`，安装脚本的下载 URL 和 `--ref` 要保持一致。

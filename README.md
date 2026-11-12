@@ -209,6 +209,8 @@ sudo certbot renew --dry-run
 
 ## 维护
 
+- HTTPS 网站支持 `/etc/nginx/reality-site-routes/*.conf` 中的额外 Nginx location，例如将已有本机订阅服务接到网站 443。
+- 这些路由文件只存放在服务器，重新配置网站或更换模板时会保留；不要把带私密订阅路径的配置上传到公开仓库。
 - 网站目录：`/var/www/reality-site/public`。
 - Nginx 配置：`/etc/nginx/sites-available/reality-site.conf`。
 - 证书目录：`/etc/letsencrypt/live/你的域名/`。

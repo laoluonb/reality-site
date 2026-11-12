@@ -540,6 +540,7 @@ EOF
     ssl_session_tickets off;
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
+    include /etc/nginx/reality-site-routes/*.conf;
     location / { try_files \$uri \$uri/ =404; }
     location ~ /\. { deny all; }
 }
@@ -547,6 +548,7 @@ EOF
   fi
 }
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+mkdir -p /etc/nginx/reality-site-routes
 if [[ $had_config -eq 0 ]]; then
   write_config no > "$work/nginx.conf"
   config_changed=1

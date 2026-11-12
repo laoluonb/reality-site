@@ -11,10 +11,12 @@ usage() {
 Usage: sudo bash install.sh DOMAIN [--email EMAIL] [--repo OWNER/REPO] [--ref REF]
        [--template random|fieldnotes|architecture|garden|coast]
        sudo bash install.sh --status|--update-site|--check|--renew-test|--show-reality|--randomize-site
+       sudo bash install.sh --public-site|--private-site
 
 Supports Debian 12+ and Ubuntu 22.04+ with systemd.
 DNS A/AAAA must point directly to this server. TCP 80 must be publicly reachable.
-Keeps TCP 443 available for REALITY; serves HTTPS on 127.0.0.1:8443.
+Keeps TCP 443 available for REALITY; website HTTPS uses port 8443.
+Menu 8 enables public website access on HTTPS port 8443 without changing nodes.
 Without --repo, uses local site/ files, or downloads from laoluonb/reality-site.
 HELP
 }
@@ -105,6 +107,11 @@ show_status() {
   load_managed_site
   printf '\n域名：%s\n网站目录：%s/public\nHTTPS 监听：127.0.0.1:8443\n' "$managed_domain" "$site_root"
   printf '当前模板：%s（%s）\n' "$(template_name "$managed_template")" "$managed_template"
+  if grep -Fq 'listen 0.0.0.0:8443 ssl http2;' "$managed_config"; then
+    printf '独立网站地址：https://%s:8443/（公网 8443 模式）\n' "$managed_domain"
+  else
+    printf '当前网站仅本机可访问；可用菜单 8 开启公网 HTTPS 8443。\n'
+  fi
   printf '\nNginx 状态：\n'
   systemctl is-active nginx || true
   printf '\n证书续期定时器：\n'
@@ -130,6 +137,53 @@ check_site() {
   grep -q 'ALPN protocol: h2' <<< "$handshake" || die "HTTP/2 协商失败。"
   printf '本机 HTTPS、证书、TLS 1.3 和 HTTP/2 检查通过。\n'
   printf '公网 443 还需要你现有的 REALITY 服务正确转发到 127.0.0.1:8443。\n'
+  if grep -Fq 'listen 0.0.0.0:8443 ssl http2;' "$managed_config"; then
+    printf '也可直接访问独立网站：https://%s:8443/。\n' "$managed_domain"
+  fi
+}
+render_website_access() {
+  local access=$1 line changed=no
+  while IFS= read -r line || [[ -n $line ]]; do
+    case "$line" in
+      '    listen 127.0.0.1:8443 ssl http2;'|'    listen 0.0.0.0:8443 ssl http2;')
+        if [[ $changed == no ]]; then
+          if [[ $access == public ]]; then
+            printf '    listen 0.0.0.0:8443 ssl http2;\n    listen [::]:8443 ssl http2;\n'
+          else
+            printf '    listen 127.0.0.1:8443 ssl http2;\n'
+          fi
+          changed=yes
+        fi ;;
+      '    listen [::]:8443 ssl http2;') ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done
+  [[ $changed == yes ]]
+}
+set_website_access() {
+  local access=$1 access_tmp
+  load_managed_site
+  lock_site
+  nginx -t
+  access_tmp=$(mktemp -d)
+  cp -p "$managed_config" "$access_tmp/previous.conf"
+  trap 'status=$?; if [[ $status -ne 0 ]]; then cp -p "$access_tmp/previous.conf" "$managed_config"; if nginx -t; then systemctl restart nginx || true; fi; fi; rm -rf -- "$access_tmp"' EXIT
+  render_website_access "$access" < "$managed_config" > "$access_tmp/next.conf" || die "未找到本脚本管理的 8443 监听配置，未修改网站。"
+  install -m 0644 "$access_tmp/next.conf" "$managed_config"
+  nginx -t
+  # A reload cannot replace an existing loopback socket with a wildcard socket.
+  systemctl restart nginx
+  curl --fail --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 \
+    --resolve "$managed_domain:8443:127.0.0.1" "https://$managed_domain:8443/" --output /dev/null
+  trap - EXIT
+  rm -rf -- "$access_tmp"
+  if [[ $access == public ]]; then
+    printf '\n网站已开启公网 HTTPS 8443：https://%s:8443/\n' "$managed_domain"
+    printf '需要云安全组与防火墙允许 TCP 8443；本脚本不修改防火墙。\n'
+  else
+    printf '\n网站已恢复仅本机访问：127.0.0.1:8443。\n'
+  fi
+  printf 'REALITY、代理节点配置和 443 监听均未修改。\n'
 }
 update_site() {
   load_managed_site
@@ -229,17 +283,20 @@ menu_loop() {
   5. 检查 HTTPS / TLS 1.3 / HTTP/2
   6. 测试证书自动续期
   7. 随机更换网站模板（不更换证书）
+  8. 开启网站公网 HTTPS 8443（不改节点）
+  9. 恢复网站仅本机访问（不改节点）
   0. 退出
 MENU
-    read -r -p '请选择 [0-7]：' choice || return 0
+    read -r -p '请选择 [0-9]：' choice || return 0
     case "$choice" in
       1) install_wizard ;;
-      2|3|4|5|6|7)
+      2|3|4|5|6|7|8|9)
         local action=""
         case "$choice" in
           2) action=--update-site ;; 3) action=--status ;; 4) action=--show-reality ;;
           5) action=--check ;; 6) action=--renew-test ;;
           7) action=--randomize-site ;;
+          8) action=--public-site ;; 9) action=--private-site ;;
         esac
         if bash "$script_path" "$action"; then
           :
@@ -247,7 +304,7 @@ MENU
           printf '\n操作未完成，请根据上方提示处理后重试。\n'
         fi ;;
       0) return 0 ;;
-      *) printf '请输入 0 到 7。\n' ;;
+      *) printf '请输入 0 到 9。\n' ;;
     esac
   done
 }
@@ -258,13 +315,15 @@ if [[ $# -eq 0 || ${1:-} == --menu ]]; then
   exit 0
 fi
 case "$1" in
-  --status|--update-site|--check|--renew-test|--show-reality|--randomize-site)
+  --status|--update-site|--check|--renew-test|--show-reality|--randomize-site|--public-site|--private-site)
     [[ $# -eq 1 ]] || die "该操作不接受额外参数。"
     require_root
     case "$1" in
       --status) show_status ;;
       --update-site) update_site ;;
       --randomize-site) update_site random ;;
+      --public-site) set_website_access public ;;
+      --private-site) set_website_access private ;;
       --check) check_site ;;
       --renew-test) load_managed_site; lock_site; certbot renew --cert-name "$managed_domain" --dry-run ;;
       --show-reality) show_reality ;;
@@ -319,6 +378,7 @@ work=$(mktemp -d)
 config_changed=0
 had_config=0
 had_link=0
+access_mode=private
 cleanup() {
   status=$?
   if [[ $status -ne 0 && $config_changed -eq 1 ]]; then
@@ -339,6 +399,7 @@ if [[ -e $config ]]; then
   grep -Fqx "# Domain: $domain" "$config" || die "This installation already serves another domain."
   cp -p "$config" "$work/previous.conf"
   had_config=1
+  if grep -Fq 'listen 0.0.0.0:8443 ssl http2;' "$config"; then access_mode=public; fi
 fi
 if [[ -e $enabled || -L $enabled ]]; then
   [[ -L $enabled && $(readlink "$enabled") == "$config" ]] || die "Existing nginx site link conflicts."
@@ -416,7 +477,13 @@ EOF
   if [[ $include_tls == yes ]]; then
     cat <<EOF
 server {
-    listen 127.0.0.1:8443 ssl http2;
+EOF
+    if [[ $access_mode == public ]]; then
+      printf '    listen 0.0.0.0:8443 ssl http2;\n    listen [::]:8443 ssl http2;\n'
+    else
+      printf '    listen 127.0.0.1:8443 ssl http2;\n'
+    fi
+    cat <<EOF
     server_name $domain;
     server_tokens off;
     root $root/public;
@@ -492,9 +559,14 @@ Set these fields in the EXISTING Xray REALITY configuration:
 
 This installer does not install Xray or change its configuration.
 Until REALITY is configured, https://$domain on public port 443 may not work.
-Keep TCP 80 reachable for certificate renewal. TCP 8443 stays local only.
+Keep TCP 80 reachable for certificate renewal.
 Certificate renewal: systemctl status certbot.timer
 Renewal test: certbot renew --dry-run
 Website files: $root/public
 Nginx configuration: $config
 EOF
+if [[ $access_mode == public ]]; then
+  printf '\n独立网站地址：https://%s:8443/（需要放行 TCP 8443）。\n' "$domain"
+else
+  printf '\n当前只完成内部网站部署。若要独立公网访问，请选择菜单 8 开启 HTTPS 8443。\n'
+fi

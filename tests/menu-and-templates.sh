@@ -53,15 +53,28 @@ bash() {
   printf '%s\n' "$*" >> "$test_root/actions"
   if [[ ${2:-} == --check ]]; then return 77; fi
 }
-menu_loop <<< $'9\n4\n5\n7\n0\n' > "$test_root/menu.log"
+menu_loop <<< $'x\n4\n5\n7\n8\n9\n0\n' > "$test_root/menu.log"
 grep -q -- '--show-reality' "$test_root/actions" || fail 'Menu did not dispatch REALITY settings'
 grep -q -- '--randomize-site' "$test_root/actions" || fail 'Menu did not continue after a failed action'
+grep -q -- '--public-site' "$test_root/actions" || fail 'Public website menu action missing'
+grep -q -- '--private-site' "$test_root/actions" || fail 'Private website menu action missing'
 grep -q '操作未完成' "$test_root/menu.log" || fail 'Menu hid a failed action'
 before_actions=$(wc -l < "$test_root/actions")
 install_wizard <<< $'https://bad\nnotes.mydomain.com\nbad-email\nmail@mydomain.com\nn\n' > "$test_root/wizard.log"
 [[ $(wc -l < "$test_root/actions") -eq $before_actions ]] || fail 'Cancelled wizard started installation'
 grep -q '邮箱格式不正确' "$test_root/wizard.log" || fail 'Wizard accepted an invalid email'
 printf 'PASS: legacy configuration, menu recovery and cancelled installation\n'
+
+printf '%s\n' 'server {' '    listen 127.0.0.1:8443 ssl http2;' '    server_name notes.mydomain.com;' '}' > "$test_root/private.conf"
+render_website_access public < "$test_root/private.conf" > "$test_root/public.conf"
+grep -Fq 'listen 0.0.0.0:8443 ssl http2;' "$test_root/public.conf" || fail 'Public IPv4 listener missing'
+grep -Fq 'listen [::]:8443 ssl http2;' "$test_root/public.conf" || fail 'Public IPv6 listener missing'
+render_website_access public < "$test_root/public.conf" > "$test_root/public-again.conf"
+cmp "$test_root/public.conf" "$test_root/public-again.conf" || fail 'Public mode is not idempotent'
+render_website_access private < "$test_root/public.conf" > "$test_root/private-again.conf"
+cmp "$test_root/private.conf" "$test_root/private-again.conf" || fail 'Private mode did not restore original config'
+if render_website_access public < /dev/null > "$test_root/empty.conf"; then fail 'Missing managed listener accepted'; fi
+printf 'PASS: website listener switching, idempotence and round-trip restoration\n'
 
 unset -f bash
 lock_site() { :; }

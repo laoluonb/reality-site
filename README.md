@@ -33,7 +33,7 @@ sudo bash install.sh notes.your-domain.com --email you@your-domain.com
 如果使用你自己 fork 的仓库，再把两处 `laoluonb/reality-site` 都换成你的仓库名称。
 
 ```bash
-curl -fL --proto '=https' --proto-redir '=https' \
+curl -fL --retry 3 --retry-all-errors --proto '=https' --proto-redir '=https' \
   https://raw.githubusercontent.com/laoluonb/reality-site/main/install.sh \
   -o /tmp/reality-site-install.sh \
   && sudo bash /tmp/reality-site-install.sh notes.your-domain.com \

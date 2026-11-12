@@ -123,7 +123,7 @@ apt-get install -y nginx certbot curl ca-certificates openssl iproute2
 mkdir -p "$work/site/assets" "$root/public" "$root/acme/.well-known/acme-challenge"
 if [[ -n $repo ]]; then
   for asset in index.html styles.css assets/landscape.jpg; do
-    curl --fail --show-error --silent --location --retry 3 \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors \
       --proto '=https' --proto-redir '=https' \
       "https://raw.githubusercontent.com/$repo/$ref/site/$asset" \
       --output "$work/site/$asset"
